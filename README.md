@@ -1,8 +1,6 @@
 
-````
 # Real-time Chat Application using Spring Boot
 
-***
 
 ### Introduction
 
@@ -10,7 +8,6 @@ This project is a real-time chat application developed using Spring Boot and Web
 
 The project leverages the Spring Boot framework for a robust and scalable backend, while WebSocket enables full-duplex, real-time communication between the server and the clients, providing a seamless and interactive chat experience.
 
-***
 
 ### Technologies Used
 
@@ -19,7 +16,6 @@ The project leverages the Spring Boot framework for a robust and scalable backen
 * **SockJS**: A JavaScript library that provides a WebSocket-like object and serves as a fallback for browsers that do not support the WebSocket protocol. SockJS ensures that the application will run smoothly across all modern and legacy browsers.
 * **Spring Boot & Spring Data JPA**: The framework provides a rapid development environment, while Spring Data JPA simplifies database interactions for persisting user and message data.
 
-***
 
 ### Code Explanation
 
@@ -49,7 +45,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setMessageSizeLimit(50 * 1024 * 1024);
     }
 }
-````
 
 This class configures the core WebSocket infrastructure for the application.
 
@@ -62,7 +57,6 @@ This class configures the core WebSocket infrastructure for the application.
       * **`setUserDestinationPrefix("/user")`**: This configures the prefix for user-specific destinations, which is essential for one-to-one messaging.
   * **`configureWebSocketTransport`**: This method tunes the technical properties of the data transport, such as setting the maximum message size and send time limit, enhancing the application's stability and security.
 
------
 
 #### Chat Controller
 
@@ -134,7 +128,6 @@ This interface is responsible for database interactions related to chat messages
 
   * **`findBySenderNameAndReceiverNameOr...`**: This is not just a regular method; it's a powerful feature of Spring Data JPA. The framework automatically generates a complex SQL query directly from the method name. This specific query fetches all messages where the sender was `user1` and receiver was `user2`, **OR** where the sender was `user2` and receiver was `user1`, and then orders them chronologically. This is the core logic behind the "Chat History" feature.
 
------
 
 #### Data Models
 
@@ -145,7 +138,6 @@ The application intelligently uses two distinct models for messages:
 1.  **`ChatMessage` (Entity)**: This class represents a message in the database. It contains fields like `id`, `senderName`, `receiverName`, `message`, and `timestamp`. It is used for persistence and data retrieval.
 2.  **`Message` (DTO - Data Transfer Object)**: This is a simpler class used as the payload for WebSocket messages. Its purpose is to transfer only the necessary data between the client and server, leading to a more efficient and clean API.
 
------
 
 #### Frontend Logic (JavaScript)
 
@@ -162,6 +154,3 @@ The client-side JavaScript brings the UI to life by interacting with the backend
       * Private messages are sent to the `/app/private-message` destination.
   * **Fetching History**: When a user opens a private chat with another user, the code sends an HTTP `GET` request to `/api/users/history/...` to retrieve past messages and display them in the chat window.
 
-
-```
-```
