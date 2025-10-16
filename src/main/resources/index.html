@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spring WebSocket Chat Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .container { display: flex; width: 80vw; height: 85vh; max-width: 1200px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 8px; overflow: hidden; }
+        #login-container { width: 100%; max-width: 400px; margin: auto; padding: 40px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        #chat-container { display: none; flex-direction: row; width: 100%; height: 100%; background: #fff; }
+        .sidebar { width: 30%; border-right: 1px solid #ddd; display: flex; flex-direction: column; background: #f7f7f7; }
+        .chat-area { flex-grow: 1; display: flex; flex-direction: column; }
+        #messages { flex-grow: 1; padding: 20px; overflow-y: auto; background: #e5ddd5; }
+        .message-form { display: flex; padding: 10px; border-top: 1px solid #ddd; background: #f0f0f0; }
+        #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; }
+        button { padding: 10px 15px; border: none; border-radius: 20px; background-color: #007bff; color: white; cursor: pointer; margin-left: 10px; }
+        button:hover { background-color: #0056b3; }
+        .message-bubble { padding: 8px 12px; border-radius: 18px; margin-bottom: 8px; max-width: 70%; word-wrap: break-word; }
+        .message-bubble.sent { background-color: #dcf8c6; align-self: flex-end; }
+        .message-bubble.received { background-color: #ffffff; align-self: flex-start; }
+        .message-bubble .sender { font-weight: bold; font-size: 0.8em; margin-bottom: 4px; color: #555; }
+        #messages { display: flex; flex-direction: column; }
+        h2, h3 { text-align: center; color: #333; }
+        input { width: calc(100% - 22px); padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; }
+        .form-toggle { text-align: center; margin-top: 15px; }
+        .form-toggle a { color: #007bff; cursor: pointer; text-decoration: none; }
+        #user-search, #user-list-header { padding: 15px; border-bottom: 1px solid #ddd; }
+        #user-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
+        #user-list li { padding: 15px; cursor: pointer; border-bottom: 1px solid #eee; }
+        #user-list li:hover, #user-list li.active { background-color: #e9e9e9; }
+        #chat-header { padding: 15px; border-bottom: 1px solid #ddd; font-weight: bold; background: #f7f7f7; }
+    </style>
+</head>
+<body>
+
+<div id="login-container">
+    <div id="login-form">
+        <h2>Login</h2>
+        <input type="text" id="login-username" placeholder="Username">
+        <input type="password" id="login-password" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <div class="form-toggle">Don't have an account? <a onclick="toggleForms()">Sign Up</a></div>
+    </div>
+    <div id="signup-form" style="display: none;">
+        <h2>Sign Up</h2>
+        <input type="text" id="signup-username" placeholder="Username">
+        <input type="text" id="signup-name" placeholder="Full Name">
+        <input type="email" id="signup-email" placeholder="Email">
+        <input type="password" id="signup-password" placeholder="Password">
+        <button onclick="signup()">Sign Up</button>
+        <div class="form-toggle">Already have an account? <a onclick="toggleForms()">Login</a></div>
+    </div>
+</div>
+
+<div id="chat-container" class="container">
+    <div class="sidebar">
+        <div id="user-list-header">
+            <h3>Chats</h3>
+            <div id="user-search">
+                <input type="text" id="search-username-input" placeholder="Search user to chat...">
+                <button onclick="searchUser()">Search</button>
+            </div>
+        </div>
+        <ul id="user-list">
+            <li id="public-chat-button" onclick="selectChat('public')" class="active">🌐 Public Chatroom</li>
+        </ul>
+    </div>
+    <div class="chat-area">
+        <div id="chat-header">🌐 Public Chatroom</div>
+        <div id="messages"></div>
+        <form class="message-form" onsubmit="sendMessage(event)">
+            <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // --- Global State ---
+    let stompClient = null;
+    let currentUsername = null;
+    let currentChatTarget = 'public'; // 'public' or a specific username
+    const API_BASE_URL = 'http://localhost:8080'; // ⚠️ غير هذا الرابط إذا كان الخادم يعمل على بورت مختلف
+
+    // --- DOM Elements ---
+    const loginContainer = document.getElementById('login-container');
+    const chatContainer = document.getElementById('chat-container');
+    const messagesArea = document.getElementById('messages');
+    const messageInput = document.getElementById('message-input');
+    const userList = document.getElementById('user-list');
+    const chatHeader = document.getElementById('chat-header');
+
+    // --- Form Toggling ---
+    function toggleForms() {
+        const loginForm = document.getElementById('login-form');
+        const signupForm = document.getElementById('signup-form');
+        loginForm.style.display = loginForm.style.display === 'none' ? 'block' : 'none';
+        signupForm.style.display = signupForm.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // --- API Calls (REST) ---
+    async function signup() {
+        const username = document.getElementById('signup-username').value.trim();
+        const name = document.getElementById('signup-name').value.trim();
+        const email = document.getElementById('signup-email').value.trim();
+        const password = document.getElementById('signup-password').value.trim();
+        if (!username || !name || !email || !password) {
+            alert('Please fill all fields');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/users/signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, name, email, password })
+            });
+            if (response.ok) {
+                alert('Signup successful! Please login.');
+                toggleForms();
+            } else {
+                const errorText = await response.text();
+                alert(`Signup failed: ${errorText}`);
+            }
+        } catch (error) {
+            console.error('Signup error:', error);
+            alert('An error occurred during signup.');
+        }
+    }
+
+    async function login() {
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value.trim();
+        if (!username || !password) {
+            alert('Please enter username and password');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/users/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (response.ok) {
+                currentUsername = username;
+                loginContainer.style.display = 'none';
+                chatContainer.style.display = 'flex';
+                connect();
+            } else {
+                const errorText = await response.text();
+                alert(`Login failed: ${errorText}`);
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('An error occurred during login.');
+        }
+    }
+
+    async function searchUser() {
+        const usernameToSearch = document.getElementById('search-username-input').value.trim();
+        if (!usernameToSearch || usernameToSearch === currentUsername) return;
+
+        // Check if user already in the list
+        if (document.getElementById(`user-${usernameToSearch}`)) {
+            selectChat(usernameToSearch);
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/users/search?username=${usernameToSearch}`);
+            if (response.ok) {
+                const user = await response.json();
+                addUserToList(user.username);
+            } else {
+                alert('User not found.');
+            }
+        } catch (error) {
+            console.error('Search error:', error);
+            alert('Error searching for user.');
+        }
+    }
+
+    async function fetchChatHistory(user1, user2) {
+        try {
+            // لاحظ تغيير الرابط هنا ليطابق التعديل في الكنترولر
+            const response = await fetch(`${API_BASE_URL}/api/users/history/${user1}/${user2}`);
+            if(response.ok) {
+                const messages = await response.json();
+                messages.forEach(msg => displayMessage(msg)); // سيعرض الرسائل بالترتيب الزمني الصحيح
+            }
+        } catch(error) {
+            console.error('Error fetching history:', error);
+        }
+    }
+
+
+    // --- WebSocket Logic ---
+    function connect() {
+        const socket = new SockJS(`${API_BASE_URL}/ws`);
+        stompClient = Stomp.over(socket);
+        stompClient.connect({}, onConnected, onError);
+    }
+
+    function onConnected() {
+        console.log('Connected to WebSocket!');
+        // Subscribe to the Public Topic
+        stompClient.subscribe('/chatroom/public', onPublicMessageReceived);
+        // Subscribe to the Private Topic for the current user
+        stompClient.subscribe(`/user/${currentUsername}/private`, onPrivateMessageReceived);
+    }
+
+    function onError(error) {
+        console.error('Could not connect to WebSocket server. Please refresh this page to try again!', error);
+    }
+
+    function sendMessage(event) {
+        event.preventDefault();
+        const messageContent = messageInput.value.trim();
+
+        if (messageContent && stompClient) {
+            const chatMessage = {
+                senderName: currentUsername,
+                receiverName: currentChatTarget === 'public' ? null : currentChatTarget,
+                message: messageContent,
+                status: 'MESSAGE'
+            };
+
+            if (currentChatTarget === 'public') {
+                stompClient.send('/app/message', {}, JSON.stringify(chatMessage));
+            } else {
+                stompClient.send('/app/private-message', {}, JSON.stringify(chatMessage));
+                // Display the sent message immediately for the sender
+                displayMessage(chatMessage);
+            }
+            messageInput.value = '';
+        }
+    }
+
+    function onPublicMessageReceived(payload) {
+        const message = JSON.parse(payload.body);
+        if (currentChatTarget === 'public') {
+            displayMessage(message);
+        }
+    }
+
+    function onPrivateMessageReceived(payload) {
+        const message = JSON.parse(payload.body);
+        // If the user is currently chatting with the sender, display the message
+        if (currentChatTarget === message.senderName) {
+            displayMessage(message);
+        } else {
+            // Optional: Add a notification for new messages from other users
+            alert(`New private message from ${message.senderName}`);
+        }
+    }
+
+    // --- UI Manipulation ---
+    function displayMessage(message) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message-bubble');
+
+        if (message.senderName === currentUsername) {
+            messageElement.classList.add('sent');
+        } else {
+            messageElement.classList.add('received');
+        }
+
+        const senderElement = document.createElement('div');
+        senderElement.classList.add('sender');
+        senderElement.textContent = message.senderName;
+
+        const textElement = document.createElement('div');
+        textElement.textContent = message.message;
+
+        messageElement.appendChild(senderElement);
+        messageElement.appendChild(textElement);
+
+        messagesArea.appendChild(messageElement);
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
+
+    function addUserToList(username) {
+        const userItem = document.createElement('li');
+        userItem.id = `user-${username}`;
+        userItem.textContent = `👤 ${username}`;
+        userItem.onclick = () => selectChat(username);
+        userList.appendChild(userItem);
+    }
+
+    function selectChat(targetUsername) {
+        if (currentChatTarget === targetUsername) return; // No change needed
+
+        // Update active state in UI
+        const currentActive = document.querySelector('#user-list .active');
+        if (currentActive) currentActive.classList.remove('active');
+
+        let newActive;
+        if (targetUsername === 'public') {
+            newActive = document.getElementById('public-chat-button');
+            chatHeader.textContent = '🌐 Public Chatroom';
+        } else {
+            newActive = document.getElementById(`user-${targetUsername}`);
+            chatHeader.textContent = `Chat with ${targetUsername}`;
+        }
+        if (newActive) newActive.classList.add('active');
+
+        // Update state and clear messages
+        currentChatTarget = targetUsername;
+        messagesArea.innerHTML = '';
+
+        // If it's a private chat, fetch history
+        if(targetUsername !== 'public') {
+            fetchChatHistory(currentUsername, targetUsername);
+        }
+    }
+
+</script>
+</body>
+</html>
